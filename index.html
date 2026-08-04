@@ -141,7 +141,7 @@
   .code-ticket .lbl{font-size:9.5px; color:#AEB8CC; font-weight:700; letter-spacing:.06em; text-transform:uppercase;}
   .code-ticket .val{font-family:'SFMono-Regular',Consolas,monospace; font-size:16px; font-weight:800; letter-spacing:.12em;}
 
-  .modal-back{position:fixed; inset:0; background:rgba(17,24,42,.5); z-index:50; display:none; align-items:flex-end; max-width:480px; margin:0 auto;}
+  .modal-back{position:fixed; inset:0; background:rgba(17,24,42,.5); z-index:70; display:none; align-items:flex-end; max-width:480px; margin:0 auto;}
   .modal-back.show{display:flex;}
   .modal-sheet{width:100%; max-width:480px; margin:0 auto; background:var(--paper); border-radius:22px 22px 0 0; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 -10px 40px rgba(0,0,0,.25);}
   .sheet-handle{width:38px;height:4px; background:var(--border); border-radius:99px; margin:10px auto 4px;}
@@ -373,12 +373,11 @@
         <h4 id="setName">-</h4>
         <p id="setRole">-</p>
       </div>
-      <div class="settings-row"><span class="lbl">이메일</span><span class="val" id="setEmail">-</span></div>
-      <div class="settings-row" id="setExtraRow"></div>
+      <div id="setFields"></div>
       <div style="margin-top:22px;"><button class="btn-secondary" id="settingsLogout">로그아웃</button></div>
     </div>
 
-    <button class="fab" id="chatFab">💬</button>
+    <button class="fab" id="chatFab">💬<span class="dot" id="chatDot"></span></button>
     <div class="bottom-nav">
       <button class="nav-btn on" data-view="viewHome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>홈</button>
       <button class="nav-btn" data-view="viewClass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>나의 클래스</button>
@@ -391,7 +390,15 @@
 
 <!-- CHAT ROOM (fullscreen overlay) -->
 <div id="chatRoom">
-  <div class="chat-top"><button class="back-btn" id="chatRoomBack">←</button><div><b id="chatRoomName">-</b><span id="chatRoomRole">-</span></div></div>
+  <div class="chat-top">
+    <button class="back-btn" id="chatRoomBack">←</button>
+    <div style="position:relative;">
+      <button id="chatRoomNameBtn" style="background:none; border:none; padding:0; text-align:left; cursor:pointer;">
+        <b id="chatRoomName">-</b><span id="chatRoomRole">-</span>
+      </button>
+      <div class="logout-pop" id="chatProfilePop"><button id="chatProfileBtn" style="color:var(--green-dark);">프로필 보기</button></div>
+    </div>
+  </div>
   <div class="chat-msgs" id="chatMsgs"></div>
   <div class="emoji-panel" id="emojiPanel"></div>
   <div class="chat-input-bar">
@@ -405,7 +412,7 @@
 <div class="modal-back" id="modalBack">
   <div class="modal-sheet" id="modalSheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-head"><h3 id="sheetTitle">-</h3><button class="sheet-x" id="sheetClose">✕</button></div>
+    <div class="sheet-head"><h3 id="sheetTitle">-</h3><div style="display:flex; gap:8px;"><button class="sheet-x" id="sheetAddBtn" style="display:none; background:var(--green); color:#fff;">➕</button><button class="sheet-x" id="sheetClose">✕</button></div></div>
     <div class="sheet-body" id="sheetBody"></div>
   </div>
 </div>
@@ -597,6 +604,21 @@ async function finishOnboarding(data){
 /* ---------------- SHELL / NAV ---------------- */
 function roleLabel(r){ return r==='teacher'?'선생님':r==='student'?'학생':'학부모'; }
 
+function profileFieldsHtml(u){
+  if(u.role==='teacher'){
+    const tags = (u.hashtags||[]).map(t=>`<span class="chip on" style="cursor:default;">${t}</span>`).join('');
+    return `<div class="settings-row"><span class="lbl">이름</span><span class="val">${u.displayName||'-'}</span></div>
+      <div style="padding:12px 4px 4px;"><span class="lbl" style="display:block; margin-bottom:8px;">해시태그</span><div class="chip-grid">${tags||'<span class="mini">등록된 해시태그가 없어요</span>'}</div></div>`;
+  }
+  if(u.role==='student'){
+    return `<div class="settings-row"><span class="lbl">이름</span><span class="val">${u.displayName||'-'}</span></div>
+      <div class="settings-row"><span class="lbl">이메일</span><span class="val">${u.email||'-'}</span></div>
+      <div class="settings-row"><span class="lbl">학력</span><span class="val">${u.schoolLevel||''} ${u.grade||''}학년</span></div>`;
+  }
+  return `<div class="settings-row"><span class="lbl">이름</span><span class="val">${u.displayName||'-'}</span></div>
+    <div class="settings-row"><span class="lbl">이메일</span><span class="val">${u.email||'-'}</span></div>`;
+}
+
 function enterShell(){
   clearSubs();
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -607,16 +629,13 @@ function enterShell(){
   $('setAv').textContent = initials(ME.displayName);
   $('setName').textContent = ME.displayName;
   $('setRole').textContent = roleLabel(ME.role);
-  $('setEmail').textContent = ME.email||'-';
-  const extra = $('setExtraRow');
-  if(ME.role==='teacher') extra.innerHTML = `<span class="lbl">과목</span><span class="val">${ME.subject||'-'}</span>`;
-  else if(ME.role==='student') extra.innerHTML = `<span class="lbl">학교급</span><span class="val">${ME.schoolLevel||''} ${ME.grade||''}학년</span>`;
-  else extra.innerHTML = `<span class="lbl">자녀</span><span class="val">${ME.childName||'-'}</span>`;
+  $('setFields').innerHTML = profileFieldsHtml(ME);
 
   loadMyClasses();
   renderClassActionRow();
   watchNotices();
   watchPendingAssignments();
+  watchChatUnread();
 }
 
 $('idBadge').addEventListener('click', (e)=>{
@@ -625,6 +644,7 @@ $('idBadge').addEventListener('click', (e)=>{
 });
 document.addEventListener('click', (e)=>{
   if(!e.target.closest('#idBadge')) $('logoutPop').classList.remove('show');
+  if(!e.target.closest('#chatRoomNameBtn')) $('chatProfilePop').classList.remove('show');
 });
 function doLogout(){ signOut(auth); $('logoutPop').classList.remove('show'); }
 $('logoutBtn').onclick = doLogout;
@@ -643,9 +663,14 @@ document.querySelectorAll('.nav-btn').forEach(b=>{
 function openSheet(title, html){
   $('sheetTitle').textContent = title;
   $('sheetBody').innerHTML = html;
+  // every fresh sheet starts with no header + button; callers that need one (like the
+  // teacher's class view) turn it on right after calling openSheet, scoped to that content
+  $('sheetAddBtn').style.display = 'none';
+  $('sheetAddBtn').onclick = null;
+  $('modalSheet').style.maxHeight = '';
   $('modalBack').classList.add('show');
 }
-function closeSheet(){ $('modalBack').classList.remove('show'); $('sheetBody').innerHTML=''; }
+function closeSheet(){ $('modalBack').classList.remove('show'); $('sheetBody').innerHTML=''; $('sheetAddBtn').style.display='none'; $('sheetAddBtn').onclick=null; }
 $('sheetClose').onclick = closeSheet;
 $('modalBack').addEventListener('click', (e)=>{ if(e.target===$('modalBack')) closeSheet(); });
 
@@ -763,19 +788,14 @@ function openClassDetail(cls){
     <div class="mini" style="margin-bottom:10px;">${cls.subtitle||''}</div>
     <div id="cdPosts"></div>
   `);
-  const sheet = $('modalSheet');
-  sheet.style.maxHeight = '92vh';
+  $('modalSheet').style.maxHeight = '92vh';
   loadClassPosts(cls);
+  // the header "+" button is scoped to exactly this class via the closure below, and
+  // openSheet() always hides/clears it first, so opening a different class (or any other
+  // sheet) can never leave a stale button pointing at the wrong class behind
   if(cls.myRoleInClass==='teacher'){
-    const fab = document.createElement('button');
-    fab.className='fab'; fab.id='classFab'; fab.style.right='calc(50% - 240px + 20px)'; fab.style.bottom='calc(8vh + 20px)';
-    fab.textContent='➕';
-    fab.onclick = ()=> openPostChoiceSheet(cls);
-    document.body.appendChild(fab);
-    const cleanup = ()=>{ fab.remove(); $('modalBack').removeEventListener('click', watcher); };
-    var watcher = (e)=>{ if(!$('modalBack').classList.contains('show')) cleanup(); };
-    $('sheetClose').addEventListener('click', cleanup, {once:true});
-    $('modalBack').addEventListener('click', (e)=>{ if(e.target===$('modalBack')) cleanup(); }, {once:true});
+    $('sheetAddBtn').style.display = 'flex';
+    $('sheetAddBtn').onclick = () => openPostChoiceSheet(cls);
   }
 }
 
@@ -1113,8 +1133,25 @@ function openChatRoom(uid, name, role){
   $('chatRoomName').textContent = name;
   $('chatRoomRole').textContent = roleLabel(role);
   $('chatRoom').classList.add('active');
+  $('chatProfilePop').classList.remove('show');
   const cid = chatId(ME.id, uid);
   const cref = doc(db,'chats',cid);
+
+  $('chatRoomNameBtn').onclick = (e)=>{ e.stopPropagation(); $('chatProfilePop').classList.toggle('show'); };
+  $('chatProfileBtn').onclick = async ()=>{
+    $('chatProfilePop').classList.remove('show');
+    const usnap = await getDoc(doc(db,'users',uid));
+    if(!usnap.exists()){ toast('프로필을 불러오지 못했어요'); return; }
+    const u = usnap.data();
+    openSheet('프로필', `
+      <div class="profile-card">
+        <div class="av">${initials(u.displayName)}</div>
+        <h4>${u.displayName||name}</h4>
+        <p>${roleLabel(u.role)}</p>
+      </div>
+      <div>${profileFieldsHtml(u)}</div>
+    `);
+  };
 
   if(chatUnsub) chatUnsub();
   chatUnsub = onSnapshot(query(collection(db,'chats',cid,'messages'), orderBy('createdAt','asc')), async (snap)=>{
@@ -1147,6 +1184,22 @@ function openChatRoom(uid, name, role){
     }, { merge:true });
   };
   $('chatInput').onkeydown = (e)=>{ if(e.key==='Enter') $('chatSend').click(); };
+}
+
+/* unread-message dot on the chat bubble: real-time listener over every chat I'm part of */
+function watchChatUnread(){
+  const q1 = query(collection(db,'chats'), where('participants','array-contains', ME.id));
+  const unsub = onSnapshot(q1, (snap)=>{
+    let unread = false;
+    snap.docs.forEach(d=>{
+      const c = d.data();
+      if(!c.lastMessageAt || c.lastSenderId===ME.id) return; // no message yet, or I sent it last
+      const myRead = c.lastRead && c.lastRead[ME.id];
+      if(!myRead || myRead.seconds < c.lastMessageAt.seconds) unread = true;
+    });
+    $('chatDot').classList.toggle('show', unread);
+  }, ()=>{ /* ignore transient errors */ });
+  unsubs.push(unsub);
 }
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
