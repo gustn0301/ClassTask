@@ -718,19 +718,28 @@ function openJoinClassSheet(){
 async function loadMyClasses(){
   $('classList').innerHTML = `<div class="empty"><b>불러오는 중</b>잠시만 기다려주세요</div>`;
   let classes = [];
-  if(ME.role==='teacher'){
-    const q1 = query(collection(db,'classes'), where('teacherId','==',ME.id), orderBy('createdAt','desc'));
-    const snap = await getDocs(q1);
-    classes = snap.docs.map(d=>({id:d.id, ...d.data(), myRoleInClass:'teacher'}));
-  } else {
-    // scan classes where I'm a member - use collectionGroup-like manual query via members
-    const q1 = query(collection(db,'classes'));
-    const snap = await getDocs(q1);
-    for(const cd of snap.docs){
-      const mref = doc(db,'classes',cd.id,'members',ME.id);
-      const msnap = await getDoc(mref);
-      if(msnap.exists()) classes.push({id:cd.id, ...cd.data(), myRoleInClass: msnap.data().role});
+  try{
+    if(ME.role==='teacher'){
+      // no orderBy here on purpose: where()+orderBy() on different fields needs a
+      // Firestore composite index, so we sort client-side instead to avoid that requirement
+      const q1 = query(collection(db,'classes'), where('teacherId','==',ME.id));
+      const snap = await getDocs(q1);
+      classes = snap.docs.map(d=>({id:d.id, ...d.data(), myRoleInClass:'teacher'}));
+      classes.sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    } else {
+      // scan classes where I'm a member - use collectionGroup-like manual query via members
+      const q1 = query(collection(db,'classes'));
+      const snap = await getDocs(q1);
+      for(const cd of snap.docs){
+        const mref = doc(db,'classes',cd.id,'members',ME.id);
+        const msnap = await getDoc(mref);
+        if(msnap.exists()) classes.push({id:cd.id, ...cd.data(), myRoleInClass: msnap.data().role});
+      }
     }
+  }catch(e){
+    $('classList').innerHTML = `<div class="empty"><b>불러오지 못했어요</b>${e.message}</div>`;
+    toast('클래스 목록을 불러오지 못했어요: '+e.message);
+    return;
   }
   myClasses = classes;
   const list = $('classList');
@@ -1003,7 +1012,11 @@ async function watchNotices(){
       if(cd.data().teacherId===ME.id) myRole='teacher';
       else{ const msnap = await getDoc(doc(db,'classes',cd.id,'members',ME.id)); if(msnap.exists()) myRole = msnap.data().role; }
       if(!myRole) continue;
-      const psnap = await getDocs(query(collection(db,'classes',cd.id,'posts'), where('type','==','notice'), orderBy('createdAt','desc'), limit(20)));
+      // no orderBy/limit here: where()+orderBy() on different fields needs a Firestore
+      // composite index; the full list is small per class and gets sorted+trimmed below anyway
+      let psnap;
+      try{ psnap = await getDocs(query(collection(db,'classes',cd.id,'posts'), where('type','==','notice'))); }
+      catch(e){ continue; }
       psnap.docs.forEach(pd=>{
         const p = pd.data();
         if(myRole==='teacher' && p.authorId===ME.id){ notices.push({id:'cls_'+cd.id+'_'+pd.id, src:cd.data().name, ...p}); return; }
