@@ -1205,7 +1205,7 @@ function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; 
 
 $('chatRoomBack').onclick = ()=>{ $('chatRoom').classList.remove('active'); if(chatUnsub){chatUnsub(); chatUnsub=null;} };
 
-const EMOJIS = ['😀','😂','😍','🥰','😅','😢','😭','😡','👍','👏','🙏','🎉','❤️','🔥','✨','📚','✏️','⏰','✅','❓'];
+const EMOJIS = ['😀','😂','😍','🥰','😅','😢','😭','😡','👍','👏','🙏','🎉','❤️','🔥','✨','📚','✏️','⏰','✅','❓','💯'];
 $('emojiPanel').innerHTML = EMOJIS.map(e=>`<button>${e}</button>`).join('');
 $('emojiPanel').addEventListener('click',(e)=>{
   const b = e.target.closest('button'); if(!b) return;
