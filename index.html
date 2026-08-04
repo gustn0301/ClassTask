@@ -286,7 +286,7 @@
       </div>
       <div class="field" id="tSubjectCustomWrap" style="display:none;"><label>과목명 직접 입력</label><input type="text" id="tSubjectCustom" placeholder="예: 논술"></div>
       <div class="field">
-        <label>나를 표현하는 해시태그 <span class="opt">정확히 3개 선택</span></label>
+        <label>나를 표현하는 해시태그 <span class="opt">최소 1개, 최대 3개 선택</span></label>
         <div class="chip-grid" id="tHashtags">
           <button class="chip" data-tag="#열정가득">#열정가득</button>
           <button class="chip" data-tag="#꼼꼼함">#꼼꼼함</button>
@@ -298,7 +298,7 @@
           <button class="chip" data-tag="#소통왕">#소통왕</button>
           <button class="chip" data-tag="#분석적">#분석적</button>
         </div>
-        <div class="hashtag-count" id="tHashtagCount">0/3 선택됨</div>
+        <div class="hashtag-count" id="tHashtagCount">0/3 선택됨 (최소 1개)</div>
       </div>
     </div>
     <div class="flow-footer"><button class="btn-primary" id="tSubmit" disabled>완료하고 시작하기</button></div>
@@ -423,7 +423,7 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where,
+  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, query, where,
   orderBy, onSnapshot, getDocs, serverTimestamp, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
@@ -505,14 +505,14 @@ $('tHashtags').addEventListener('click', (e)=>{
   const tag = chip.dataset.tag;
   if(tTags.has(tag)){ tTags.delete(tag); chip.classList.remove('on'); }
   else{ if(tTags.size>=3){ toast('해시태그는 3개까지 선택할 수 있어요'); return; } tTags.add(tag); chip.classList.add('on'); }
-  $('tHashtagCount').textContent = `${tTags.size}/3 선택됨`;
+  $('tHashtagCount').textContent = `${tTags.size}/3 선택됨 (최소 1개)`;
   validateTeacher();
 });
 function validateTeacher(){
   const name = $('tName').value.trim();
   const subj = $('tSubject').value;
   const subjOk = subj && (subj!=='__custom' || $('tSubjectCustom').value.trim());
-  $('tSubmit').disabled = !(name && subjOk && tTags.size===3);
+  $('tSubmit').disabled = !(name && subjOk && tTags.size>=1 && tTags.size<=3);
 }
 $('tSubmit').onclick = async () => {
   const name = $('tName').value.trim();
@@ -608,6 +608,7 @@ function profileFieldsHtml(u){
   if(u.role==='teacher'){
     const tags = (u.hashtags||[]).map(t=>`<span class="chip on" style="cursor:default;">${t}</span>`).join('');
     return `<div class="settings-row"><span class="lbl">이름</span><span class="val">${u.displayName||'-'}</span></div>
+      <div class="settings-row"><span class="lbl">과목</span><span class="val">${u.subject||'-'}</span></div>
       <div style="padding:12px 4px 4px;"><span class="lbl" style="display:block; margin-bottom:8px;">해시태그</span><div class="chip-grid">${tags||'<span class="mini">등록된 해시태그가 없어요</span>'}</div></div>`;
   }
   if(u.role==='student'){
@@ -787,6 +788,7 @@ function openClassDetail(cls){
   openSheet(cls.name, `
     <div class="mini" style="margin-bottom:10px;">${cls.subtitle||''}</div>
     <div id="cdPosts"></div>
+    <div id="cdDangerZone"></div>
   `);
   $('modalSheet').style.maxHeight = '92vh';
   loadClassPosts(cls);
@@ -796,6 +798,31 @@ function openClassDetail(cls){
   if(cls.myRoleInClass==='teacher'){
     $('sheetAddBtn').style.display = 'flex';
     $('sheetAddBtn').onclick = () => openPostChoiceSheet(cls);
+    $('cdDangerZone').innerHTML = `<button class="btn-secondary" id="deleteClassBtn" style="color:var(--red); border-color:var(--red-tint); background:var(--red-tint); margin-top:22px;">클래스 삭제</button>`;
+    $('deleteClassBtn').onclick = () => deleteClass(cls);
+  }
+}
+
+async function deleteClass(cls){
+  if(!confirm(`'${cls.name}' 클래스를 정말 삭제할까요?\n모든 과제, 공지, 제출물 기록이 함께 삭제되며 되돌릴 수 없어요.`)) return;
+  const btn = $('deleteClassBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '삭제하는 중...'; }
+  try{
+    const postsSnap = await getDocs(collection(db,'classes',cls.id,'posts'));
+    for(const pd of postsSnap.docs){
+      const subsSnap = await getDocs(collection(db,'classes',cls.id,'posts',pd.id,'submissions'));
+      for(const sd of subsSnap.docs) await deleteDoc(sd.ref);
+      await deleteDoc(pd.ref);
+    }
+    const membersSnap = await getDocs(collection(db,'classes',cls.id,'members'));
+    for(const md of membersSnap.docs) await deleteDoc(md.ref);
+    await deleteDoc(doc(db,'classes',cls.id));
+    toast('클래스를 삭제했어요');
+    closeSheet();
+    loadMyClasses();
+  }catch(e){
+    toast('삭제에 실패했어요: '+e.message);
+    if(btn){ btn.disabled = false; btn.textContent = '클래스 삭제'; }
   }
 }
 
@@ -947,13 +974,19 @@ async function openAssignmentDetail(cls, post){
       $('subFile').onchange = ()=>{ $('subSubmitBtn').disabled = !$('subFile').files[0]; };
       $('subSubmitBtn').onclick = async ()=>{
         $('subSubmitBtn').disabled=true; $('subSubmitBtn').textContent='제출 중...';
-        const f = $('subFile').files[0];
-        const r = ref(storage, `classes/${cls.id}/submissions/${post.id}/${ME.id}_${f.name}`);
-        await uploadBytes(r,f); const url = await getDownloadURL(r);
-        await setDoc(subRef, { fileURL:url, fileName:f.name, submittedAt: serverTimestamp(), studentName: ME.displayName });
-        toast('과제를 제출했어요');
-        closeSheet();
-        watchPendingAssignments();
+        try{
+          const f = $('subFile').files[0];
+          const r = ref(storage, `classes/${cls.id}/submissions/${post.id}/${ME.id}_${f.name}`);
+          await uploadBytes(r,f);
+          const url = await getDownloadURL(r);
+          await setDoc(subRef, { fileURL:url, fileName:f.name, submittedAt: serverTimestamp(), studentName: ME.displayName });
+          toast('과제를 제출했어요');
+          closeSheet();
+          watchPendingAssignments();
+        }catch(e){
+          toast('제출에 실패했어요: '+e.message);
+          $('subSubmitBtn').disabled=false; $('subSubmitBtn').textContent='과제 제출하기';
+        }
       };
     }
   } else {
