@@ -457,6 +457,28 @@ let ME = null; // firestore user doc {id, ...}
 let unsubs = [];
 function clearSubs(){ unsubs.forEach(u=>u&&u()); unsubs=[]; }
 
+/* ---------------- BOOT DIAGNOSTICS ----------------
+   If Firebase never finishes initializing (blocked CDN/network, bad config,
+   or any other startup error) the loading screen would otherwise stay up
+   forever and look like a blank white page. This turns that into a visible,
+   actionable message instead of a silent hang. */
+let bootDone = false;
+function showBootError(msg){
+  const veil = $('loadingVeil');
+  if(!veil) return;
+  veil.style.display = 'flex';
+  veil.innerHTML = `
+    <div style="max-width:300px; text-align:center; padding:24px;">
+      <div style="font-size:30px; margin-bottom:12px;">⚠️</div>
+      <div style="font-weight:800; font-size:15px; margin-bottom:8px;">불러오지 못했어요</div>
+      <div style="font-size:12.5px; color:var(--ink-soft); line-height:1.5; margin-bottom:18px; word-break:break-word;">${msg}</div>
+      <button onclick="location.reload()" style="padding:11px 20px; border:none; border-radius:10px; background:var(--green); color:#fff; font-weight:700; font-size:13.5px;">다시 시도</button>
+    </div>`;
+}
+window.addEventListener('error', (e)=>{ if(!bootDone) showBootError(e.message || '알 수 없는 오류가 발생했어요.'); });
+window.addEventListener('unhandledrejection', (e)=>{ if(!bootDone) showBootError((e.reason && e.reason.message) || String(e.reason)); });
+setTimeout(()=>{ if(!bootDone) showBootError('서버 연결이 너무 오래 걸리고 있어요. 네트워크 상태를 확인하거나, 광고 차단/보안 프로그램이 Firebase 접속을 막고 있지 않은지 확인해주세요.'); }, 8000);
+
 /* ---------------- AUTH ---------------- */
 $('googleLoginBtn').onclick = async () => {
   try{
@@ -466,17 +488,23 @@ $('googleLoginBtn').onclick = async () => {
 };
 
 onAuthStateChanged(auth, async (user) => {
+  bootDone = true;
   $('loadingVeil').style.display = 'none';
-  CURRENT_USER = user;
-  if(!user){ $('shell').classList.remove('active'); show('screenLogin'); clearSubs(); return; }
-  const uref = doc(db,'users',user.uid);
-  const usnap = await getDoc(uref);
-  if(!usnap.exists()){
-    // fresh user -> onboarding
-    show('screenRole');
-  } else {
-    ME = { id: usnap.id, ...usnap.data() };
-    enterShell();
+  try{
+    CURRENT_USER = user;
+    if(!user){ $('shell').classList.remove('active'); show('screenLogin'); clearSubs(); return; }
+    const uref = doc(db,'users',user.uid);
+    const usnap = await getDoc(uref);
+    if(!usnap.exists()){
+      // fresh user -> onboarding
+      show('screenRole');
+    } else {
+      ME = { id: usnap.id, ...usnap.data() };
+      enterShell();
+    }
+  }catch(e){
+    console.error(e);
+    toast('불러오는 중 오류가 발생했어요: '+e.message);
   }
 });
 
@@ -1238,7 +1266,7 @@ function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; 
 
 $('chatRoomBack').onclick = ()=>{ $('chatRoom').classList.remove('active'); if(chatUnsub){chatUnsub(); chatUnsub=null;} };
 
-const EMOJIS = ['😀','😂','😍','🥰','😅','😢','😭','😡','👍','👏','🙏','🎉','❤️','🔥','✨','📚','✏️','⏰','✅','❓','💯'];
+const EMOJIS = ['😀','😂','😍','🥰','😅','😢','😭','😡','👍','👏','🙏','🎉','❤️','🔥','✨','📚','✏️','⏰','✅','❓','💯','👌'];
 $('emojiPanel').innerHTML = EMOJIS.map(e=>`<button>${e}</button>`).join('');
 $('emojiPanel').addEventListener('click',(e)=>{
   const b = e.target.closest('button'); if(!b) return;
